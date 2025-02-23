@@ -11,7 +11,7 @@ export interface Message {
 
 class ChatDatabase {
   private db: Database | null = null;
-  private subscribers: Set<(messages: Message[]) => void> = new Set();
+  private subscribers: Set<(messages: Message[], isNewMessage?: boolean) => void> = new Set();
   private ws: WebSocket | null = null;
 
   async init() {
@@ -51,6 +51,8 @@ class ChatDatabase {
     this.ws.onmessage = (event) => {
       const message = JSON.parse(event.data) as Message;
       this.insertMessage(message, false);
+      // Notify subscribers that this is a new message
+      this.notifySubscribers(true);
     };
 
     this.ws.onclose = () => {
@@ -59,16 +61,16 @@ class ChatDatabase {
     };
   }
 
-  subscribe(callback: (messages: Message[]) => void) {
+  subscribe(callback: (messages: Message[], isNewMessage?: boolean) => void) {
     this.subscribers.add(callback);
     return () => {
       this.subscribers.delete(callback);
     };
   }
 
-  private notifySubscribers() {
+  private notifySubscribers(isNewMessage = false) {
     const messages = this.getMessages();
-    this.subscribers.forEach(callback => callback(messages));
+    this.subscribers.forEach(callback => callback(messages, isNewMessage));
     // Save to localStorage
     localStorage.setItem('chatData', JSON.stringify(messages));
   }
@@ -118,8 +120,21 @@ class ChatDatabase {
       this.ws.send(JSON.stringify(newMessage));
     }
 
-    this.notifySubscribers();
+    this.notifySubscribers(true);
     return newMessage;
+  }
+
+  clearMessages() {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    // Clear the messages table
+    this.db.run('DELETE FROM messages');
+    
+    // Clear localStorage
+    localStorage.setItem('chatData', '[]');
+    
+    // Notify subscribers
+    this.notifySubscribers();
   }
 }
 
